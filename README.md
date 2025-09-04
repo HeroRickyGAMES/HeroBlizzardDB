@@ -1,7 +1,3 @@
-Com certeza! Um README.md bem-acabado é o cartão de visitas de um projeto. Vamos dar um polimento final, melhorando a apresentação, o texto e adicionando um toque mais profissional para fechar com chave de ouro.
-
-Aqui está uma versão refinada do README.md para o HeroBlizzardDB, pronta para você colocar no seu projeto.
-
 <div align="center">
 <h1>⚡️ HeroBlizzardDB ⚡️</h1>
 <p><strong>Um servidor de banco de dados NoSQL auto-hospedado, feito em Dart, com a velocidade e a simplicidade que seu projeto merece.</strong></p>
