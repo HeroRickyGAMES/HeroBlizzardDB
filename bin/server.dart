@@ -35,6 +35,8 @@ Future<void> _loadConfig() async {
   _config['admin_user'] = Platform.environment['ADMIN_USER'] ?? fileConfig['admin_user'];
   _config['admin_password'] = Platform.environment['ADMIN_PASSWORD'] ?? fileConfig['admin_password'];
 
+  print(Platform.environment);
+
   if (_config['admin_user'] == null || _config['admin_password'] == null) {
     print('----------------------------------------------------------------------');
     print('ERRO CRÍTICO: Credenciais de administrador não foram configuradas.');
