@@ -11,20 +11,20 @@ RUN dart pub get
 COPY . .
 
 # Compila a aplicação em um executável nativo e otimizado
-RUN dart compile exe lib/server.dart -o lib/server
+RUN dart compile exe bin/server.dart -o bin/server
 
 # Estágio 2: Runtime - Usamos uma imagem mínima para rodar o executável
 # "scratch" é a menor imagem possível, pois o executável Dart já tem tudo que precisa
 FROM scratch
 
 # Copia o executável compilado do estágio de build
-COPY --from=build /lib/bin/server /lib/bin/server
+COPY --from=build /app/bin/server /app/bin/server
 
 # Copia a pasta 'public' com os arquivos da interface web
-COPY --from=build /lib/public /lib/public/
+COPY --from=build /app/public /app/public/
 
 # Expõe a porta que o OnRender irá usar (geralmente 10000, mas o Dart lerá da variável de ambiente)
 EXPOSE 10000
 
 # Comando para iniciar o servidor quando o contêiner rodar
-CMD ["/lib/bin/server"]
+CMD ["/app/bin/server"]
