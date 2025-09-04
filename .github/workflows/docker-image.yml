@@ -1,30 +1,50 @@
-# Estágio 1: Build - Usamos a imagem oficial do Dart para compilar a aplicação
-FROM dart:stable AS build
+# Nome do nosso fluxo de automação
+name: Build and Deploy to OnRender
 
-WORKDIR /app
+# Gatilho: Este fluxo vai rodar sempre que houver um push na branch 'main'
+on:
+  push:
+    branches: [ "main" ]
 
-# Copia os arquivos de dependência e as instala
-COPY pubspec.* ./
-RUN dart pub get
+# Define as variáveis de ambiente que usaremos
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }} # Ex: herorickygames/heroblizzarddb
 
-# Copia todo o resto do código do projeto
-COPY . .
+# Tarefas que serão executadas
+jobs:
+  build-and-push:
+    name: Build and Push Docker Image
+    runs-on: ubuntu-latest # Rodará em uma máquina virtual Linux no GitHub
 
-# Compila a aplicação em um executável nativo e otimizado
-RUN dart compile exe bin/server.dart -o bin/server
+    # Permissões necessárias para o job poder enviar a imagem para o GHCR
+    permissions:
+      contents: read
+      packages: write
 
-# Estágio 2: Runtime - Usamos uma imagem mínima para rodar o executável
-# "scratch" é a menor imagem possível, pois o executável Dart já tem tudo que precisa
-FROM scratch
+    steps:
+      # 1. Pega o código do seu repositório
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-# Copia o executável compilado do estágio de build
-COPY --from=build /app/bin/server /app/bin/server
+      # 2. Faz o login no GitHub Container Registry
+      - name: Log in to the Container registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }} # Este segredo é fornecido automaticamente pelo GitHub
 
-# Copia a pasta 'public' com os arquivos da interface web
-COPY --from=build /app/public /app/public/
+      # 3. Constrói a imagem Docker e envia para o registro
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest # Ex: ghcr.io/herorickygames/heroblizzarddb:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
-# Expõe a porta que o OnRender irá usar (geralmente 10000, mas o Dart lerá da variável de ambiente)
-EXPOSE 10000
-
-# Comando para iniciar o servidor quando o contêiner rodar
-CMD ["/app/bin/server"]
+      # 4. (Opcional, mas recomendado) Envia um sinal para o OnRender para ele atualizar
+      - name: Trigger OnRender Deploy
+        run: curl -X POST ${{ secrets.ONRENDER_DEPLOY_HOOK_URL }}
