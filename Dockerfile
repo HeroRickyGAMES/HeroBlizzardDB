@@ -1,21 +1,32 @@
-# Use latest stable channel SDK.
+# Estágio 1: Build - Usamos a imagem oficial do Dart para compilar a aplicação
 FROM dart:stable AS build
 
-# Resolve app dependencies.
 WORKDIR /app
+
+# Copia os arquivos de dependência e as instala
 COPY pubspec.* ./
 RUN dart pub get
 
-# Copy app source code (except anything in .dockerignore) and AOT compile app.
+# Copia todo o resto do código do projeto
 COPY . .
+
+# Compila a aplicação em um executável nativo e otimizado
 RUN dart compile exe bin/server.dart -o bin/server
 
-# Build minimal serving image from AOT-compiled `/server`
-# and the pre-built AOT-runtime in the `/runtime/` directory of the base image.
+# Estágio 2: Runtime - Usamos uma imagem mínima para rodar o executável
 FROM scratch
-COPY --from=build /runtime/ /
-COPY --from=build /app/bin/server /app/bin/
-COPY --from=build /app/public /app/bin/public
 
+# Copia o runtime AOT do estágio de build
+COPY --from=build /runtime/ /
+
+# Copia o executável compilado do estágio de build
+COPY --from=build /app/bin/server /app/bin/server
+
+# CORREÇÃO: Copia a pasta 'public' para o local correto
+COPY --from=build /app/public /app/public
+
+# Expõe a porta que o servidor vai usar
 EXPOSE 8080
+
+# Comando para iniciar o servidor quando o contêiner rodar
 CMD ["/app/bin/server"]
