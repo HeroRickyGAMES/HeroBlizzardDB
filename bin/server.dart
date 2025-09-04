@@ -32,7 +32,7 @@ Future<void> _loadConfig() async {
 
   // Passo 2: Lê as Variáveis de Ambiente, que têm PRIORIDADE.
   // Se a variável de ambiente existir, ela sobrescreve o valor do arquivo.
-  _config['admin_user'] = Platform.environment['ADMIN_USER'] ?? fileConfig['admin_user'];
+  _config['admin_user'] = Platform.environment['RENDER_DISCOVERY_SERVICE'] ?? fileConfig['RENDER_INSTANCE_ID'];
   _config['admin_password'] = Platform.environment['ADMIN_PASSWORD'] ?? fileConfig['admin_password'];
 
   print(Platform.environment.entries.toSet());
