@@ -1,0 +1,225 @@
+/* --- Sistema de Design: HeroBlizzardDB (Material You Expressive) --- */
+
+:root {
+    /* Tema Claro (Padrão) */
+    --font-family: 'Poppins', 'Roboto', sans-serif;
+    --primary: #4285F4; /* Azul Google como cor primária */
+    --primary-container: #D2E3FC;
+    --on-primary-container: #0B428B;
+    --surface-container: #F3F4F8;
+    --surface-container-high: #E8EAEE;
+    --on-surface: #1f1f1f;
+    --on-surface-variant: #474747;
+    --outline: #C4C7C5;
+    --error: #B3261E;
+    --error-container: #F9DEDC;
+    --on-error-container: #410E0B;
+}
+
+body.dark-mode {
+    /* Tema Escuro */
+    --primary: #A8C7FA;
+    --primary-container: #284263;
+    --on-primary-container: #D4E2FF;
+    --surface-container: #202124;
+    --panel-bg: #2d2e30;
+    --on-surface: #e3e3e3;
+    --on-surface-variant: #c4c7c5;
+    --outline: #3c4043;
+    --error: #F2B8B5;
+    --error-container: #8C1D18;
+    --on-error-container: #F2B8B5;
+    --hover-bg: #3c4043;
+    --input-bg: #3c4043;
+}
+
+body {
+    font-family: var(--font-family);
+    margin: 0;
+    background-color: var(--surface-container);
+    color: var(--on-surface);
+    overflow: hidden;
+}
+
+/* ... (O resto do CSS até a seção de modais é o mesmo) ... */
+
+.firestore-emulator {
+    display: flex;
+    height: 100vh;
+    width: 100vw;
+}
+.panel {
+    background: var(--panel-bg);
+    border-right: 1px solid var(--outline);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+#collections-panel { flex: 1; min-width: 200px; }
+#documents-panel { flex: 1.5; min-width: 250px; }
+#fields-panel { flex: 2.5; min-width: 350px; }
+.panel-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--outline);
+    flex-shrink: 0;
+}
+.panel-header h2 { margin: 0; font-size: 1.1em; font-weight: 500; }
+.add-btn {
+    background: var(--surface-container);
+    border: 1px solid var(--outline);
+    border-radius: 12px;
+    width: 36px;
+    height: 36px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background-color 0.2s ease;
+}
+.add-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.add-btn:hover:not(:disabled) { background-color: var(--surface-container-high); }
+.add-btn svg { fill: var(--on-surface-variant); }
+.panel-list { list-style: none; padding: 8px; margin: 0; overflow-y: auto; }
+.panel-list li {
+    padding: 14px 16px;
+    cursor: pointer;
+    border-radius: 100px;
+    margin-bottom: 4px;
+    font-family: 'Courier New', Courier, monospace;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    transition: background-color 0.2s ease;
+}
+.panel-list li span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.panel-list li:hover { background-color: var(--hover-bg); }
+.panel-list li.selected {
+    background-color: var(--primary-container);
+    color: var(--on-primary-container);
+    font-weight: bold;
+}
+.panel-content { padding: 24px; overflow-y: auto; }
+.field-item { display: flex; align-items: center; margin-bottom: 12px; font-family: 'Courier New', Courier, monospace; }
+.field-key { font-weight: bold; color: var(--error); }
+.field-separator { margin: 0 8px; color: var(--on-surface-variant); }
+.field-value { color: var(--primary); }
+.field-type { font-size: 0.8em; margin-left: auto; color: var(--on-surface-variant); padding: 4px 8px; background-color: var(--surface-container); border-radius: 8px; }
+.delete-btn {
+    background: none; border: none; cursor: pointer;
+    font-size: 16px; padding: 5px; margin-left: 10px;
+    color: var(--on-surface-variant); opacity: 0.6;
+    transition: opacity 0.2s, color 0.2s;
+}
+.panel-list li:hover .delete-btn { opacity: 1; }
+.delete-btn:hover { color: var(--error); }
+
+/* --- ESTILOS DOS MODAIS --- */
+.hidden { display: none !important; }
+
+.modal-overlay {
+    position: fixed; top: 0; left: 0;
+    width: 100%; height: 100%;
+    background-color: rgba(0, 0, 0, 0.7);
+    display: flex; justify-content: center; align-items: center;
+    z-index: 1000;
+}
+
+.modal-content {
+    background: var(--panel-bg);
+    padding: 24px;
+    border-radius: 28px;
+    box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+    width: 500px;
+    max-height: 90vh;
+    display: flex; flex-direction: column;
+    border: 1px solid var(--outline);
+}
+
+.modal-content form { overflow-y: auto; padding-right: 15px; margin-right: -15px; }
+.modal-content h2, .modal-content h3 { margin: 0 0 24px 0; flex-shrink: 0; }
+.modal-content label, .modal-content p { display: block; margin-bottom: 8px; font-size: 0.9em; color: var(--on-surface-variant); }
+
+/* CORREÇÃO APLICADA AQUI */
+.modal-content input[type="text"],
+.modal-content input[type="password"], /* LINHA ADICIONADA */
+.modal-content select,
+.modal-content textarea {
+    width: 100%; padding: 16px;
+    margin-bottom: 16px; border: 1px solid var(--outline);
+    border-radius: 12px;
+    box-sizing: border-box; font-family: inherit; font-size: 1em;
+    background-color: var(--input-bg);
+    color: var(--on-surface);
+}
+
+.modal-content input[type="text"]:focus,
+.modal-content input[type="password"]:focus, /* LINHA ADICIONADA */
+.modal-content select:focus,
+.modal-content textarea:focus {
+    outline: none;
+    border: 2px solid var(--primary);
+    padding: 15px;
+}
+
+/* ... (Restante do CSS sem alterações) ... */
+.modal-content textarea { font-family: 'Courier New', Courier, monospace; resize: vertical; }
+#modal-fields-container { display: flex; flex-direction: column; gap: 10px; margin-bottom: 10px; }
+.field-row, .add-field-form { display: flex; gap: 10px; align-items: center; }
+.add-field-form {
+    margin-bottom: 15px; padding-bottom: 15px; border-bottom: 1px dashed var(--outline);
+}
+.add-field-form input, .add-field-form select { flex: 1; padding: 12px; }
+.add-field-form button { margin-left: 5px; padding: 8px 12px; }
+.modal-actions { display: flex; justify-content: flex-end; margin-top: 24px; gap: 12px; flex-shrink: 0; }
+.modal-actions button, .add-field-form button {
+    padding: 10px 24px; border-radius: 100px; border: none;
+    cursor: pointer; font-weight: 600; font-family: var(--font-family);
+    transition: background-color 0.2s ease, box-shadow 0.2s ease;
+}
+.cancel-btn {
+    background-color: transparent;
+    border: 1px solid var(--outline);
+    color: var(--primary);
+}
+.cancel-btn:hover { background-color: rgba(128, 128, 128, 0.1); }
+.save-btn {
+    background-color: var(--primary);
+    color: var(#000000);
+}
+.save-btn:hover { box-shadow: 0 2px 8px -2px var(--primary); }
+.delete-confirm-btn {
+    background-color: var(--error);
+    color: var(--surface-container-high);
+}
+.delete-confirm-btn:hover { box-shadow: 0 2px 8px -2px var(--error); }
+.delete-field-btn { background: none; border: none; cursor: pointer; font-size: 16px; padding: 5px; color: var(--on-surface-variant); }
+.delete-field-btn:hover { color: var(--error); }
+#modal-fields-container .field-row:first-child .delete-field-btn { display: none; }
+.add-more-btn {
+    background-color: var(--surface-container);
+    border: 1px solid var(--outline);
+    color: var(--on-surface-variant);
+    width: 100%; padding: 10px; cursor: pointer; border-radius: 12px;
+    margin-top: -5px; margin-bottom: 20px; font-weight: 500;
+}
+.add-more-btn:hover { background-color: var(--surface-container-high); }
+.modal-sm { width: 400px; }
+.modal-sm p { font-size: 1em; line-height: 1.5; color: var(--on-surface-variant); }
+
+/* --- ESTILOS DA PÁGINA DE LOGIN --- */
+.login-page {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+}
+.login-container { width: 450px; }
+.error-text {
+    color: var(--error);
+    font-size: 0.9em;
+    text-align: center;
+    margin-bottom: 15px;
+}

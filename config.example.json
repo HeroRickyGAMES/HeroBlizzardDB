@@ -1,0 +1,8 @@
+{
+  "admin_user": "admin",
+  "admin_password": "changeme",
+  "api_tokens": [
+    "changeme_token_1",
+    "changeme_token_2"
+  ]
+}

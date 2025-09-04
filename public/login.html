@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login - HeroBlizzardDB</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css"> </head>
+<body class="dark-mode login-page">
+
+<div class="login-container">
+    <div class="modal-content">
+        <h2>Login - HeroBlizzardDB</h2>
+        <form action="/login" method="POST">
+            <label for="username">Nome de usuário</label>
+            <input type="text" id="username" name="username" required>
+
+            <label for="password">Senha</label>
+            <input type="password" id="password" name="password" required>
+
+            <p id="error-message" class="hidden error-text">Usuário ou senha inválidos.</p>
+
+            <div class="modal-actions">
+                <button type="submit" class="save-btn">Fazer Login</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+    // Script simples para mostrar erro, se houver
+    document.addEventListener('DOMContentLoaded', () => {
+        const urlParams = new URLSearchParams(window.location.search);
+        if (urlParams.has('error')) {
+            document.getElementById('error-message').classList.remove('hidden');
+        }
+    });
+</script>
+</body>
+</html>

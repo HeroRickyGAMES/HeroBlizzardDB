@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HeroBlizzardDB</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600&display=swap" rel="stylesheet">
+
+    <link rel="stylesheet" href="style.css">
+</head>
+<body class="dark-mode"> <div class="firestore-emulator">
+    <div class="panel" id="collections-panel">
+        <div class="panel-header">
+            <h2>HeroBlizzardDB</h2>
+            <button title="Start collection" class="add-btn" id="start-collection-btn">
+                <svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 -960 960 960" width="20px"><path d="M440-440H200v-80h240v-240h80v240h240v80H520v240h-80v-240Z"/></svg>
+            </button>
+        </div>
+        <ul class="panel-list" id="collections-list"></ul>
+    </div>
+
+    <div class="panel" id="documents-panel">
+        <div class="panel-header">
+            <h2 id="current-collection-title">Selecione uma coleção</h2>
+            <button title="Add document" class="add-btn" id="add-document-btn" disabled>
+                <svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 -960 960 960" width="20px"><path d="M440-440H200v-80h240v-240h80v240h240v80H520v240h-80v-240Z"/></svg>
+            </button>
+        </div>
+        <ul class="panel-list" id="documents-list"></ul>
+    </div>
+
+    <div class="panel" id="fields-panel">
+        <div class="panel-header">
+            <h2 id="current-document-title">Selecione um documento</h2>
+            <button title="Add field" class="add-btn" id="add-field-btn" disabled>
+                <svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 -960 960 960" width="20px"><path d="M440-440H200v-80h240v-240h80v240h240v80H520v240h-80v-240Z"/></svg>
+            </button>
+        </div>
+        <div class="panel-content" id="fields-content">
+        </div>
+    </div>
+</div>
+<script src="script.js"></script>
+
+<div id="add-collection-modal-overlay" class="modal-overlay hidden">
+    <div class="modal-content">
+        <h2>Start a collection</h2>
+        <form id="add-collection-form">
+            <label for="collection-id">Collection ID</label>
+            <input type="text" id="collection-id" placeholder="Nome da coleção" required>
+            <p>O primeiro documento será criado automaticamente.</p>
+            <label for="document-id">Document ID</label>
+            <input type="text" id="document-id" placeholder="ID (ou deixe em branco para auto)">
+            <label>Campos</label>
+            <div id="modal-fields-container">
+                <div class="field-row">
+                    <input type="text" name="key" placeholder="Field" required>
+                    <select name="type">
+                        <option value="string">string</option>
+                        <option value="number">number</option>
+                        <option value="boolean">boolean</option>
+                    </select>
+                    <input type="text" name="value" placeholder="Value" required>
+                    <button type="button" class="delete-field-btn hidden">🗑️</button>
+                </div>
+            </div>
+            <button type="button" id="add-more-fields-btn" class="add-more-btn">+</button>
+            <div class="modal-actions">
+                <button type="button" class="cancel-btn">Cancel</button>
+                <button type="submit" class="save-btn">Save</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div id="add-document-modal-overlay" class="modal-overlay hidden">
+    <div class="modal-content">
+        <h2>Add a document</h2>
+        <form id="add-document-form">
+            <label for="doc-modal-collection-id">Collection ID</label>
+            <input type="text" id="doc-modal-collection-id" readonly>
+            <label for="doc-modal-document-id">Document ID</label>
+            <input type="text" id="doc-modal-document-id" placeholder="ID (ou deixe em branco para auto)">
+            <label for="doc-modal-data">Document Data (JSON)</label>
+            <textarea id="doc-modal-data" rows="8" placeholder='{\n  "campo": "valor",\n  "outro_campo": 123\n}' required></textarea>
+            <div class="modal-actions">
+                <button type="button" class="cancel-btn">Cancel</button>
+                <button type="submit" class="save-btn">Save</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div id="confirm-delete-modal-overlay" class="modal-overlay hidden">
+    <div class="modal-content modal-sm">
+        <h3>Confirmar Exclusão</h3>
+        <p id="confirm-delete-message">Você tem certeza?</p>
+        <div class="modal-actions">
+            <button type="button" class="cancel-btn" id="confirm-delete-cancel-btn">Cancelar</button>
+            <button type="button" class="save-btn delete-confirm-btn" id="confirm-delete-confirm-btn">Deletar</button>
+        </div>
+    </div>
+</div>
+</body>
+</html>
