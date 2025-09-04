@@ -22,11 +22,14 @@ COPY --from=build /runtime/ /
 # Copia o executável compilado do estágio de build
 COPY --from=build /app/bin/server /app/bin/server
 
-# CORREÇÃO: Copia a pasta 'public' para o local correto
-COPY --from=build /app/public /app/public
+# CORREÇÃO: Define o diretório de trabalho para a aplicação
+WORKDIR /app
+
+# Copia a pasta 'public' para o local correto (relativo ao WORKDIR)
+COPY --from=build /app/public ./public/
 
 # Expõe a porta que o servidor vai usar
 EXPOSE 8080
 
-# Comando para iniciar o servidor quando o contêiner rodar
-CMD ["/app/bin/server"]
+# Comando para iniciar o servidor (agora relativo ao WORKDIR)
+CMD ["bin/server"]
