@@ -6,7 +6,7 @@ import 'package:shelf/shelf.dart';
 import 'package:shelf/shelf_io.dart' as io;
 import 'package:shelf_router/shelf_router.dart';
 import 'package:shelf_static/shelf_static.dart';
-import 'package:synchronized/synchronized.dart'; // Pacote correto para Lock
+import 'package:synchronized/synchronized.dart';
 import 'package:uuid/uuid.dart';
 
 //Programado por HeroRickyGAMES
@@ -16,8 +16,6 @@ final Map<String, Map<String, dynamic>> _database = {};
 String _dbPath = 'database.json';
 final Map<String, DateTime> _sessions = {};
 const uuid = Uuid();
-
-// A classe 'Lock' é definida pelo pacote 'synchronized'
 final _dbLock = Lock();
 
 // --- Componentes para o sistema de Batching ---
@@ -130,10 +128,19 @@ Middleware authMiddleware() {
   return (Handler innerHandler) {
     return (Request request) {
       final path = request.url.path;
-      if (path.startsWith('api/')) {
-        if(path == 'api/export' || path == 'api/import' || path == '/auth/register' || path == '/auth/login') {
+
+      // Rotas públicas de autenticação do app, login do painel e assets são liberadas primeiro.
+      if (path.startsWith('/auth/') || path == '/login' || path == '/login.html' || path.endsWith('.css') || path.endsWith('.js')) {
+        return innerHandler(request);
+      }
+
+      // Rotas da API principal (/api/*)
+      if (path.startsWith('/api/')) {
+        // Rotas de import/export usam senha própria na URL, então são liberadas do token/sessão
+        if(path == '/api/export' || path == '/api/import') {
           return innerHandler(request);
         }
+        // Validação por Token Bearer (para apps externos)
         final authHeader = request.headers['authorization'];
         if (authHeader != null && authHeader.startsWith('Bearer ')) {
           final token = authHeader.substring(7);
@@ -142,15 +149,15 @@ Middleware authMiddleware() {
             return innerHandler(request);
           }
         }
+        // Validação por Sessão de Cookie (para a dashboard)
         final sessionToken = _getSessionToken(request);
         if (_isSessionValid(sessionToken)) {
           return innerHandler(request);
         }
         return Response.forbidden('Acesso negado. Token de autorização ou sessão inválida.');
       }
-      if (path == 'login.html' || path.endsWith('.css') || path.endsWith('.js') || path == 'login') {
-        return innerHandler(request);
-      }
+
+      // Se não for API nem rota pública, protege o resto da UI do Admin
       final sessionToken = _getSessionToken(request);
       if (!_isSessionValid(sessionToken)) {
         return Response.seeOther('/login.html');
