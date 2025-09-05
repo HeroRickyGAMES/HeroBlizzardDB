@@ -1,8 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-
-import 'package:bcrypt/bcrypt.dart';
 import 'package:shelf/shelf.dart';
 import 'package:shelf/shelf_io.dart' as io;
 import 'package:shelf_router/shelf_router.dart';
@@ -21,8 +19,8 @@ const uuid = Uuid();
 final _dbLock = Lock();
 
 // --- Componentes para o sistema de Batching ---
-bool _isDbDirty = false;
-Timer? _dbSaveTimer;
+bool _isDbDirty = false; // Flag para rastrear alterações pendentes
+Timer? _dbSaveTimer;     // O Timer que salvará periodicamente
 
 // --- Carregamento de Configuração Híbrida ---
 Future<void> _loadConfig() async {
@@ -38,11 +36,8 @@ Future<void> _loadConfig() async {
     }
   }
 
-  // CORREÇÃO DEFINITIVA: Lendo as variáveis de ambiente corretas.
   _config['admin_user'] = Platform.environment['RENDER_DISCOVERY_SERVICE'] ?? fileConfig['admin_user'];
-
   _config['admin_password'] = Platform.environment['RENDER_SERVICE_ID'] ?? fileConfig['admin_password'];
-
   _config['import_export_password'] = Platform.environment['RENDER_SERVICE_ID'];
 
   final apiTokensEnv = Platform.environment['RENDER_SERVICE_ID'];
@@ -54,7 +49,7 @@ Future<void> _loadConfig() async {
   _dbPath = Platform.environment['DATABASE_PATH'] ?? 'database.json';
 
   if (_config['admin_user'] == null || _config['admin_password'] == null) {
-    print('ERRO CRÍTICO: Credenciais de administrador não foram configuradas.');
+    print('ERRO CRÍTICO: Credenciais de administrador não configuradas.');
     exit(1);
   }
   if (_config['import_export_password'] == null) {
@@ -62,6 +57,8 @@ Future<void> _loadConfig() async {
   }
 
   print('Configurações carregadas com sucesso.');
+  print('-> Usuário Admin: ${_config['admin_user']} (Fonte: ${Platform.environment['RENDER_DISCOVERY_SERVICE'] != null ? 'Variável de Ambiente' : 'config.json'})');
+  print('-> Path do DB: $_dbPath (Fonte: ${Platform.environment['DATABASE_PATH'] != null ? 'Variável de Ambiente' : 'Padrão'})');
 }
 
 // --- Funções do Banco de Dados ---
@@ -78,6 +75,7 @@ Future<void> _loadDatabase() async {
       }
     } else {
       _database['exemplo'] = {'doc1': {'id': 'doc1', 'mensagem': 'Bem-vindo ao HeroBlizzardDB!'}};
+      // Na primeira vez, salva imediatamente, sem esperar o timer
       await File(_dbPath).writeAsString(jsonEncode(_database));
     }
   } catch (e) {
@@ -133,13 +131,8 @@ Middleware authMiddleware() {
   return (Handler innerHandler) {
     return (Request request) {
       final path = request.url.path;
-
-      if (path.startsWith('/auth/') || path == '/login' || path == '/login.html' || path.endsWith('.css') || path.endsWith('.js')) {
-        return innerHandler(request);
-      }
-
-      if (path.startsWith('/api/')) {
-        if(path == '/api/export' || path == '/api/import') {
+      if (path.startsWith('api/')) {
+        if(path == 'api/export' || path == 'api/import') {
           return innerHandler(request);
         }
         final authHeader = request.headers['authorization'];
@@ -156,7 +149,9 @@ Middleware authMiddleware() {
         }
         return Response.forbidden('Acesso negado. Token de autorização ou sessão inválida.');
       }
-
+      if (path == 'login.html' || path.endsWith('.css') || path.endsWith('.js') || path == 'login') {
+        return innerHandler(request);
+      }
       final sessionToken = _getSessionToken(request);
       if (!_isSessionValid(sessionToken)) {
         return Response.seeOther('/login.html');
@@ -190,7 +185,7 @@ void main() async {
 
   final router = Router();
 
-  // Rota de Login do PAINEL ADMIN
+  // Rota de Login
   router.post('/login', (Request request) async {
     final body = await request.readAsString();
     final params = Uri.splitQueryString(body);
@@ -205,101 +200,18 @@ void main() async {
     }
   });
 
-  // Rotas de AUTENTICAÇÃO para o APP FROSTGUARD
-  router.post('/auth/register', (Request request) async {
-    final body = await request.readAsString();
-    final Map<String, dynamic> data = jsonDecode(body);
-    final email = data['email']?.toString().toLowerCase();
-    final password = data['password']?.toString();
-
-    if (email == null || password == null || email.isEmpty || password.isEmpty) {
-      return Response(400, body: jsonEncode({'error': 'Email e senha são obrigatórios.'}));
-    }
-
-    return await _safeDbWrite(() async {
-      if (!_database.containsKey('frostguard_users')) {
-        _database['frostguard_users'] = {};
-      }
-      final users = _database['frostguard_users']!;
-      final userExists = users.values.any((user) => user['email'] == email);
-      if (userExists) {
-        return Response(409, body: jsonEncode({'error': 'Este email já está em uso.'}));
-      }
-      final String hashedPassword = BCrypt.hashpw(password, BCrypt.gensalt());
-      final newUserId = uuid.v4();
-      final newUser = {
-        'id': newUserId, 'email': email, 'password_hash': hashedPassword,
-        'licenca_ativa_ate': DateTime.now().add(const Duration(days: 7)).toIso8601String(),
-        'created_at': DateTime.now().toIso8601String(),
-      };
-      _database['frostguard_users']![newUserId] = newUser;
-      return Response(201, body: jsonEncode({'id': newUserId, 'email': email}));
-    });
-  });
-
-  router.post('/auth/login', (Request request) async {
-    final body = await request.readAsString();
-    final Map<String, dynamic> data = jsonDecode(body);
-    final email = data['email']?.toString().toLowerCase();
-    final password = data['password']?.toString();
-
-    if (email == null || password == null) {
-      return Response(400, body: jsonEncode({'error': 'Email e senha são obrigatórios.'}));
-    }
-
-    final users = _database['frostguard_users'];
-    if (users == null) {
-      return Response(401, body: jsonEncode({'error': 'Usuário ou senha inválidos.'}));
-    }
-
-    final userEntry = users.entries.firstWhere(
-          (entry) => entry.value['email'] == email, orElse: () => const MapEntry('', null),
-    );
-
-    if (userEntry.value == null) {
-      return Response(401, body: jsonEncode({'error': 'Usuário ou senha inválidos.'}));
-    }
-
-    final user = userEntry.value;
-    final String hashedPassword = user['password_hash'];
-
-    if (BCrypt.checkpw(password, hashedPassword)) {
-      return Response.ok(jsonEncode({
-        'id': user['id'], 'email': user['email'], 'licenca_ativa_ate': user['licenca_ativa_ate'],
-      }));
-    } else {
-      return Response(401, body: jsonEncode({'error': 'Usuário ou senha inválidos.'}));
-    }
-  });
-
-  // Rotas de CRUD da API
+  // Rotas de LEITURA da API
   router.get('/api/collections', (Request request) {
     final collectionNames = _database.keys.toList();
     return Response.ok(jsonEncode(collectionNames), headers: {'Content-Type': 'application/json'});
   });
-
   router.get('/api/<collection>', (Request request, String collection) {
     if (!_database.containsKey(collection)) return Response.notFound('Coleção "$collection" não encontrada.');
-
-    final documents = _database[collection]!.values;
-    final queryParams = request.url.queryParameters;
-
-    if (queryParams.isEmpty) {
-      return Response.ok(jsonEncode(documents.toList()), headers: {'Content-Type': 'application/json'});
-    }
-
-    final filteredDocs = documents.where((doc) {
-      return queryParams.entries.every((queryEntry) {
-        final key = queryEntry.key;
-        final value = queryEntry.value;
-        if (!doc.containsKey(key)) return false;
-        return doc[key].toString() == value;
-      });
-    }).toList();
-
-    return Response.ok(jsonEncode(filteredDocs), headers: {'Content-Type': 'application/json'});
+    final documents = _database[collection]!.values.toList();
+    return Response.ok(jsonEncode(documents), headers: {'Content-Type': 'application/json'});
   });
 
+  // Rotas de ESCRITA da API
   router.post('/api/<collection>', (Request request, String collection) async {
     final body = await request.readAsString();
     try {
@@ -329,6 +241,38 @@ void main() async {
     } catch (e) {
       return Response(400, body: 'JSON inválido.');
     }
+  });
+
+
+  // Rota de LEITURA da API (AGORA COM SUPORTE A QUERIES)
+  router.get('/api/<collection>', (Request request, String collection) {
+    if (!_database.containsKey(collection)) return Response.notFound('Coleção "$collection" não encontrada.');
+
+    final documents = _database[collection]!.values;
+    final queryParams = request.url.queryParameters;
+
+    // Se não houver parâmetros de consulta, retorna todos os documentos
+    if (queryParams.isEmpty) {
+      return Response.ok(jsonEncode(documents.toList()), headers: {'Content-Type': 'application/json'});
+    }
+
+    // Se houver parâmetros, filtra os documentos
+    final filteredDocs = documents.where((doc) {
+      // Verifica se o documento corresponde a TODOS os parâmetros da query
+      return queryParams.entries.every((queryEntry) {
+        final key = queryEntry.key;
+        final value = queryEntry.value;
+
+        if (!doc.containsKey(key)) {
+          return false;
+        }
+
+        // Compara os valores como strings para simplificar
+        return doc[key].toString() == value;
+      });
+    }).toList();
+
+    return Response.ok(jsonEncode(filteredDocs), headers: {'Content-Type': 'application/json'});
   });
 
   router.delete('/api/<collection>', (Request request, String collection) async {
@@ -376,7 +320,7 @@ void main() async {
     }
     final body = await request.readAsString();
     try {
-      return await _dbLock.synchronized(() async {
+      await _dbLock.synchronized(() async {
         final newDbData = jsonDecode(body);
         if (newDbData is! Map<String, dynamic>) {
           throw FormatException('O JSON importado deve ser um objeto (Map).');
@@ -390,9 +334,10 @@ void main() async {
           _database[key] = Map<String, dynamic>.from(value);
         });
         _isDbDirty = true;
+        // Força um salvamento imediato após o import para garantir consistência
         await _saveDatabase();
-        return Response.ok(jsonEncode({'status': 'sucesso', 'message': 'Banco de dados importado com sucesso e salvo.'}));
       });
+      return Response.ok(jsonEncode({'status': 'sucesso', 'message': 'Banco de dados importado com sucesso e salvo.'}));
     } catch (e) {
       return Response(400, body: 'JSON inválido ou erro ao processar o arquivo: $e');
     }
