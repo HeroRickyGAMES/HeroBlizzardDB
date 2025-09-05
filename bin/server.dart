@@ -36,8 +36,8 @@ Future<void> _loadConfig() async {
     }
   }
 
-  _config['admin_user'] = Platform.environment['ADMIN_USER'] ?? fileConfig['admin_user'];
-  _config['admin_password'] = Platform.environment['ADMIN_PASSWORD'] ?? fileConfig['admin_password'];
+  _config['admin_user'] = Platform.environment['RENDER_DISCOVERY_SERVICE'] ?? fileConfig['admin_user'];
+  _config['admin_password'] = Platform.environment['RENDER_SERVICE_ID'] ?? fileConfig['admin_password'];
   _config['import_export_password'] = Platform.environment['IMPORT_EXPORT_PASSWORD'];
 
   final apiTokensEnv = Platform.environment['API_TOKENS'];
