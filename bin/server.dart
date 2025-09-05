@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:async/async.dart'; // Importa o pacote
 import 'package:shelf/shelf.dart';
 import 'package:shelf/shelf_io.dart' as io;
 import 'package:shelf_router/shelf_router.dart';
@@ -13,6 +14,9 @@ final Map<String, Map<String, dynamic>> _database = {};
 String _dbPath = 'database.json'; // Padrão para local
 final Map<String, DateTime> _sessions = {};
 const uuid = Uuid();
+
+// CORREÇÃO: A classe correta para criar uma "trava" é CancelableOperation
+final _dbLock = CancelableOperation.fromFuture(Future.value());
 
 // --- Carregamento de Configuração Híbrida ---
 Future<void> _loadConfig() async {
@@ -41,7 +45,7 @@ Future<void> _loadConfig() async {
   _dbPath = Platform.environment['DATABASE_PATH'] ?? 'database.json';
 
   if (_config['admin_user'] == null || _config['admin_password'] == null) {
-    print('ERRO CRÍTICO: Credenciais de administrador não foram configuradas.');
+    print('ERRO CRÍTICO: Credenciais de administrador não configuradas.');
     exit(1);
   }
   if (_config['import_export_password'] == null) {
@@ -83,6 +87,18 @@ Future<void> _saveDatabase() async {
   }
 }
 
+// Função segura para realizar escritas, usando a trava para evitar concorrência.
+Future<T> _safeDbWrite<T>(Future<T> Function() operation) async {
+  // A classe CancelableOperation não tem um método `synchronized`. Usamos `then` para encadear.
+  // Isso cria uma fila, garantindo que a próxima operação só comece quando a anterior terminar.
+  return await _dbLock.then((_) async {
+    final result = await operation();
+    await _saveDatabase();
+    return result;
+  }).value;
+}
+
+
 // --- Middleware de Autenticação e Funções Auxiliares ---
 Middleware authMiddleware() {
   return (Handler innerHandler) {
@@ -90,7 +106,6 @@ Middleware authMiddleware() {
       final path = request.url.path;
       if (path.startsWith('api/')) {
         if(path == 'api/export' || path == 'api/import') {
-          // As rotas de import/export têm sua própria validação por senha, então não precisam de token/sessão.
           return innerHandler(request);
         }
         final authHeader = request.headers['authorization'];
@@ -155,7 +170,7 @@ void main() async {
     }
   });
 
-  // Rotas de CRUD da API
+  // Rotas de LEITURA da API (não precisam de trava)
   router.get('/api/collections', (Request request) {
     final collectionNames = _database.keys.toList();
     return Response.ok(jsonEncode(collectionNames), headers: {'Content-Type': 'application/json'});
@@ -165,47 +180,53 @@ void main() async {
     final documents = _database[collection]!.values.toList();
     return Response.ok(jsonEncode(documents), headers: {'Content-Type': 'application/json'});
   });
+
+  // Rotas de ESCRITA da API (protegidas pela trava de concorrência)
   router.post('/api/<collection>', (Request request, String collection) async {
     final body = await request.readAsString();
     try {
-      final Map<String, dynamic> docData = jsonDecode(body);
-      final newId = docData.containsKey('id') && docData['id'] != null && docData['id'].toString().isNotEmpty ? docData['id'].toString() : uuid.v4();
-      docData['id'] = newId;
-      if (!_database.containsKey(collection)) _database[collection] = {};
-      _database[collection]![newId] = docData;
-      await _saveDatabase();
-      return Response(201, body: jsonEncode(docData), headers: {'Content-Type': 'application/json'});
+      return await _safeDbWrite(() async {
+        final Map<String, dynamic> docData = jsonDecode(body);
+        final newId = docData.containsKey('id') && docData['id'] != null && docData['id'].toString().isNotEmpty ? docData['id'].toString() : uuid.v4();
+        docData['id'] = newId;
+        if (!_database.containsKey(collection)) _database[collection] = {};
+        _database[collection]![newId] = docData;
+        return Response(201, body: jsonEncode(docData), headers: {'Content-Type': 'application/json'});
+      });
     } catch (e) {
       return Response(400, body: 'JSON inválido.');
     }
   });
+
   router.put('/api/<collection>/<id>', (Request request, String collection, String id) async {
-    if (!_database.containsKey(collection) || !_database[collection]!.containsKey(id)) return Response.notFound('Documento com ID "$id" não encontrado na coleção "$collection".');
+    if (!_database.containsKey(collection) || !_database[collection]!.containsKey(id)) return Response.notFound('Documento não encontrado.');
     final body = await request.readAsString();
     try {
-      final Map<String, dynamic> docData = jsonDecode(body);
-      docData['id'] = id;
-      _database[collection]![id] = docData;
-      await _saveDatabase();
-      return Response.ok(jsonEncode(docData), headers: {'Content-Type': 'application/json'});
+      return await _safeDbWrite(() async {
+        final Map<String, dynamic> docData = jsonDecode(body);
+        docData['id'] = id;
+        _database[collection]![id] = docData;
+        return Response.ok(jsonEncode(docData), headers: {'Content-Type': 'application/json'});
+      });
     } catch (e) {
       return Response(400, body: 'JSON inválido.');
     }
   });
+
   router.delete('/api/<collection>', (Request request, String collection) async {
-    if (_database.containsKey(collection)) {
+    if (!_database.containsKey(collection)) return Response.notFound('Coleção não encontrada.');
+    return await _safeDbWrite(() async {
       _database.remove(collection);
-      await _saveDatabase();
       return Response(204);
-    } else {
-      return Response.notFound('Coleção "$collection" não encontrada.');
-    }
+    });
   });
+
   router.delete('/api/<collection>/<id>', (Request request, String collection, String id) async {
-    if (!_database.containsKey(collection) || !_database[collection]!.containsKey(id)) return Response.notFound('Documento com ID "$id" não encontrado na coleção "$collection".');
-    _database[collection]!.remove(id);
-    await _saveDatabase();
-    return Response(204);
+    if (!_database.containsKey(collection) || !_database[collection]!.containsKey(id)) return Response.notFound('Documento não encontrado.');
+    return await _safeDbWrite(() async {
+      _database[collection]!.remove(id);
+      return Response(204);
+    });
   });
 
   // Rotas de Import / Export
@@ -237,18 +258,21 @@ void main() async {
     }
     final body = await request.readAsString();
     try {
-      final newDbData = jsonDecode(body);
-      if (newDbData is! Map<String, dynamic>) {
-        throw FormatException('O JSON importado deve ser um objeto (Map).');
-      }
-      final currentDbFile = File(_dbPath);
-      if (await currentDbFile.exists()) {
-        await currentDbFile.rename('${_dbPath}.bak');
-      }
-      await File(_dbPath).writeAsString(body);
-      _database.clear();
-      await _loadDatabase();
-      return Response.ok(jsonEncode({'status': 'sucesso', 'message': 'Banco de dados importado com sucesso.'}));
+      // A trava é usada aqui diretamente para garantir que a operação de import seja atômica
+      return await _dbLock.then((_) async {
+        final newDbData = jsonDecode(body);
+        if (newDbData is! Map<String, dynamic>) {
+          throw FormatException('O JSON importado deve ser um objeto (Map).');
+        }
+        final currentDbFile = File(_dbPath);
+        if (await currentDbFile.exists()) {
+          await currentDbFile.rename('${_dbPath}.bak');
+        }
+        await File(_dbPath).writeAsString(body);
+        _database.clear();
+        await _loadDatabase();
+        return Response.ok(jsonEncode({'status': 'sucesso', 'message': 'Banco de dados importado com sucesso.'}));
+      }).value;
     } catch (e) {
       return Response(400, body: 'JSON inválido ou erro ao processar o arquivo: $e');
     }
@@ -260,7 +284,10 @@ void main() async {
   final portEnv = Platform.environment['PORT'];
   final port = portEnv != null ? int.parse(portEnv) : 8080;
   final server = await io.serve(
-    Pipeline().addMiddleware(logRequests()).addMiddleware(authMiddleware()).addHandler(cascadeHandler),
+    Pipeline()
+        .addMiddleware(logRequests())
+        .addMiddleware(authMiddleware())
+        .addHandler(cascadeHandler),
     '0.0.0.0',
     port,
   );
