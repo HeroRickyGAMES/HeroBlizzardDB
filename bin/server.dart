@@ -201,16 +201,6 @@ void main() async {
   });
 
   // Rotas de LEITURA da API
-  router.get('/api/collections', (Request request) {
-    final collectionNames = _database.keys.toList();
-    return Response.ok(jsonEncode(collectionNames), headers: {'Content-Type': 'application/json'});
-  });
-  router.get('/api/<collection>', (Request request, String collection) {
-    if (!_database.containsKey(collection)) return Response.notFound('Coleção "$collection" não encontrada.');
-    final documents = _database[collection]!.values.toList();
-    return Response.ok(jsonEncode(documents), headers: {'Content-Type': 'application/json'});
-  });
-
   // Rotas de ESCRITA da API
   router.post('/api/<collection>', (Request request, String collection) async {
     final body = await request.readAsString();
