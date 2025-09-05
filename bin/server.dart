@@ -38,9 +38,9 @@ Future<void> _loadConfig() async {
 
   _config['admin_user'] = Platform.environment['RENDER_DISCOVERY_SERVICE'] ?? fileConfig['admin_user'];
   _config['admin_password'] = Platform.environment['RENDER_SERVICE_ID'] ?? fileConfig['admin_password'];
-  _config['import_export_password'] = Platform.environment['IMPORT_EXPORT_PASSWORD'];
+  _config['import_export_password'] = Platform.environment['RENDER_SERVICE_ID'];
 
-  final apiTokensEnv = Platform.environment['API_TOKENS'];
+  final apiTokensEnv = Platform.environment['RENDER_SERVICE_ID'];
   if (apiTokensEnv != null && apiTokensEnv.isNotEmpty) {
     _config['api_tokens'] = apiTokensEnv.split(',').where((s) => s.isNotEmpty).toList();
   } else {
@@ -57,7 +57,7 @@ Future<void> _loadConfig() async {
   }
 
   print('Configurações carregadas com sucesso.');
-  print('-> Usuário Admin: ${_config['admin_user']} (Fonte: ${Platform.environment['ADMIN_USER'] != null ? 'Variável de Ambiente' : 'config.json'})');
+  print('-> Usuário Admin: ${_config['admin_user']} (Fonte: ${Platform.environment['RENDER_DISCOVERY_SERVICE'] != null ? 'Variável de Ambiente' : 'config.json'})');
   print('-> Path do DB: $_dbPath (Fonte: ${Platform.environment['DATABASE_PATH'] != null ? 'Variável de Ambiente' : 'Padrão'})');
 }
 
