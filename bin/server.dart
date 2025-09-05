@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+
 import 'package:bcrypt/bcrypt.dart';
 import 'package:shelf/shelf.dart';
 import 'package:shelf/shelf_io.dart' as io;
@@ -37,9 +38,11 @@ Future<void> _loadConfig() async {
     }
   }
 
-  // Usando as variáveis de ambiente que você especificou
+  // CORREÇÃO DEFINITIVA: Lendo as variáveis de ambiente corretas.
   _config['admin_user'] = Platform.environment['RENDER_DISCOVERY_SERVICE'] ?? fileConfig['admin_user'];
+
   _config['admin_password'] = Platform.environment['RENDER_SERVICE_ID'] ?? fileConfig['admin_password'];
+
   _config['import_export_password'] = Platform.environment['RENDER_SERVICE_ID'];
 
   final apiTokensEnv = Platform.environment['RENDER_SERVICE_ID'];
@@ -51,7 +54,7 @@ Future<void> _loadConfig() async {
   _dbPath = Platform.environment['DATABASE_PATH'] ?? 'database.json';
 
   if (_config['admin_user'] == null || _config['admin_password'] == null) {
-    print('ERRO CRÍTICO: Credenciais de administrador não configuradas.');
+    print('ERRO CRÍTICO: Credenciais de administrador não foram configuradas.');
     exit(1);
   }
   if (_config['import_export_password'] == null) {
@@ -125,25 +128,20 @@ void _setupShutdownHook() {
   });
 }
 
-// --- Middlewares e Funções Auxiliares (LÓGICA CORRIGIDA) ---
+// --- Middlewares e Funções Auxiliares ---
 Middleware authMiddleware() {
   return (Handler innerHandler) {
     return (Request request) {
       final path = request.url.path;
 
-      // CORREÇÃO: Verifica TODAS as rotas públicas primeiro, antes de qualquer outra lógica.
       if (path.startsWith('/auth/') || path == '/login' || path == '/login.html' || path.endsWith('.css') || path.endsWith('.js')) {
         return innerHandler(request);
       }
 
-      // Se não for uma rota pública, continua com a validação...
-
-      // Rotas da API principal (/api/*)
       if (path.startsWith('/api/')) {
         if(path == '/api/export' || path == '/api/import') {
           return innerHandler(request);
         }
-        // Validação por Token Bearer ou Sessão de Cookie
         final authHeader = request.headers['authorization'];
         if (authHeader != null && authHeader.startsWith('Bearer ')) {
           final token = authHeader.substring(7);
@@ -159,7 +157,6 @@ Middleware authMiddleware() {
         return Response.forbidden('Acesso negado. Token de autorização ou sessão inválida.');
       }
 
-      // Se não for API nem rota pública, protege o resto da UI do Admin
       final sessionToken = _getSessionToken(request);
       if (!_isSessionValid(sessionToken)) {
         return Response.seeOther('/login.html');
@@ -275,7 +272,7 @@ void main() async {
     }
   });
 
-  // Rotas de CRUD da API (com suporte a queries)
+  // Rotas de CRUD da API
   router.get('/api/collections', (Request request) {
     final collectionNames = _database.keys.toList();
     return Response.ok(jsonEncode(collectionNames), headers: {'Content-Type': 'application/json'});
