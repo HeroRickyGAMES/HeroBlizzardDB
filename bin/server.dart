@@ -1,26 +1,28 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'package:bcrypt/bcrypt.dart';
 import 'package:shelf/shelf.dart';
 import 'package:shelf/shelf_io.dart' as io;
 import 'package:shelf_router/shelf_router.dart';
 import 'package:shelf_static/shelf_static.dart';
-import 'package:synchronized/synchronized.dart';
+import 'package:synchronized/synchronized.dart'; // Pacote correto para Lock
 import 'package:uuid/uuid.dart';
 
 //Programado por HeroRickyGAMES
 
-// --- Configuração e Banco de Dados ---
 final Map<String, dynamic> _config = {};
 final Map<String, Map<String, dynamic>> _database = {};
 String _dbPath = 'database.json';
 final Map<String, DateTime> _sessions = {};
 const uuid = Uuid();
+
+// A classe 'Lock' é definida pelo pacote 'synchronized'
 final _dbLock = Lock();
 
 // --- Componentes para o sistema de Batching ---
-bool _isDbDirty = false; // Flag para rastrear alterações pendentes
-Timer? _dbSaveTimer;     // O Timer que salvará periodicamente
+bool _isDbDirty = false;
+Timer? _dbSaveTimer;
 
 // --- Carregamento de Configuração Híbrida ---
 Future<void> _loadConfig() async {
@@ -49,7 +51,7 @@ Future<void> _loadConfig() async {
   _dbPath = Platform.environment['DATABASE_PATH'] ?? 'database.json';
 
   if (_config['admin_user'] == null || _config['admin_password'] == null) {
-    print('ERRO CRÍTICO: Credenciais de administrador não configuradas.');
+    print('ERRO CRÍTICO: Credenciais de administrador não foram configuradas.');
     exit(1);
   }
   if (_config['import_export_password'] == null) {
@@ -57,8 +59,6 @@ Future<void> _loadConfig() async {
   }
 
   print('Configurações carregadas com sucesso.');
-  print('-> Usuário Admin: ${_config['admin_user']} (Fonte: ${Platform.environment['RENDER_DISCOVERY_SERVICE'] != null ? 'Variável de Ambiente' : 'config.json'})');
-  print('-> Path do DB: $_dbPath (Fonte: ${Platform.environment['DATABASE_PATH'] != null ? 'Variável de Ambiente' : 'Padrão'})');
 }
 
 // --- Funções do Banco de Dados ---
@@ -75,7 +75,6 @@ Future<void> _loadDatabase() async {
       }
     } else {
       _database['exemplo'] = {'doc1': {'id': 'doc1', 'mensagem': 'Bem-vindo ao HeroBlizzardDB!'}};
-      // Na primeira vez, salva imediatamente, sem esperar o timer
       await File(_dbPath).writeAsString(jsonEncode(_database));
     }
   } catch (e) {
@@ -132,7 +131,7 @@ Middleware authMiddleware() {
     return (Request request) {
       final path = request.url.path;
       if (path.startsWith('api/')) {
-        if(path == 'api/export' || path == 'api/import') {
+        if(path == 'api/export' || path == 'api/import' || path == '/auth/register' || path == '/auth/login') {
           return innerHandler(request);
         }
         final authHeader = request.headers['authorization'];
@@ -185,7 +184,7 @@ void main() async {
 
   final router = Router();
 
-  // Rota de Login
+  // Rota de Login do PAINEL ADMIN
   router.post('/login', (Request request) async {
     final body = await request.readAsString();
     final params = Uri.splitQueryString(body);
@@ -200,18 +199,85 @@ void main() async {
     }
   });
 
-  // Rotas de LEITURA da API
+  // Rotas de AUTENTICAÇÃO para o APP FROSTGUARD
+  router.post('/auth/register', (Request request) async {
+    final body = await request.readAsString();
+    final Map<String, dynamic> data = jsonDecode(body);
+    final email = data['email']?.toString().toLowerCase();
+    final password = data['password']?.toString();
+
+    if (email == null || password == null || email.isEmpty || password.isEmpty) {
+      return Response(400, body: jsonEncode({'error': 'Email e senha são obrigatórios.'}));
+    }
+
+    return await _safeDbWrite(() async {
+      if (!_database.containsKey('frostguard_users')) {
+        _database['frostguard_users'] = {};
+      }
+      final users = _database['frostguard_users']!;
+      final userExists = users.values.any((user) => user['email'] == email);
+      if (userExists) {
+        return Response(409, body: jsonEncode({'error': 'Este email já está em uso.'}));
+      }
+      final String hashedPassword = BCrypt.hashpw(password, BCrypt.gensalt());
+      final newUserId = uuid.v4();
+      final newUser = {
+        'id': newUserId, 'email': email, 'password_hash': hashedPassword,
+        'licenca_ativa_ate': DateTime.now().add(const Duration(days: 7)).toIso8601String(),
+        'created_at': DateTime.now().toIso8601String(),
+      };
+      _database['frostguard_users']![newUserId] = newUser;
+      return Response(201, body: jsonEncode({'id': newUserId, 'email': email}));
+    });
+  });
+
+  router.post('/auth/login', (Request request) async {
+    final body = await request.readAsString();
+    final Map<String, dynamic> data = jsonDecode(body);
+    final email = data['email']?.toString().toLowerCase();
+    final password = data['password']?.toString();
+
+    if (email == null || password == null) {
+      return Response(400, body: jsonEncode({'error': 'Email e senha são obrigatórios.'}));
+    }
+
+    final users = _database['frostguard_users'];
+    if (users == null) {
+      return Response(401, body: jsonEncode({'error': 'Usuário ou senha inválidos.'}));
+    }
+
+    final userEntry = users.entries.firstWhere(
+          (entry) => entry.value['email'] == email, orElse: () => const MapEntry('', null),
+    );
+
+    if (userEntry.value == null) {
+      return Response(401, body: jsonEncode({'error': 'Usuário ou senha inválidos.'}));
+    }
+
+    final user = userEntry.value;
+    final String hashedPassword = user['password_hash'];
+
+    if (BCrypt.checkpw(password, hashedPassword)) {
+      return Response.ok(jsonEncode({
+        'id': user['id'], 'email': user['email'], 'licenca_ativa_ate': user['licenca_ativa_ate'],
+      }));
+    } else {
+      return Response(401, body: jsonEncode({'error': 'Usuário ou senha inválidos.'}));
+    }
+  });
+
+  // Rotas de CRUD da API
   router.get('/api/collections', (Request request) {
     final collectionNames = _database.keys.toList();
     return Response.ok(jsonEncode(collectionNames), headers: {'Content-Type': 'application/json'});
   });
+
   router.get('/api/<collection>', (Request request, String collection) {
     if (!_database.containsKey(collection)) return Response.notFound('Coleção "$collection" não encontrada.');
     final documents = _database[collection]!.values.toList();
     return Response.ok(jsonEncode(documents), headers: {'Content-Type': 'application/json'});
   });
 
-  // Rotas de ESCRITA da API
   router.post('/api/<collection>', (Request request, String collection) async {
     final body = await request.readAsString();
     try {
@@ -288,7 +354,7 @@ void main() async {
     }
     final body = await request.readAsString();
     try {
-      await _dbLock.synchronized(() async {
+      return await _dbLock.synchronized(() async {
         final newDbData = jsonDecode(body);
         if (newDbData is! Map<String, dynamic>) {
           throw FormatException('O JSON importado deve ser um objeto (Map).');
@@ -302,10 +368,9 @@ void main() async {
           _database[key] = Map<String, dynamic>.from(value);
         });
         _isDbDirty = true;
-        // Força um salvamento imediato após o import para garantir consistência
         await _saveDatabase();
+        return Response.ok(jsonEncode({'status': 'sucesso', 'message': 'Banco de dados importado com sucesso e salvo.'}));
       });
-      return Response.ok(jsonEncode({'status': 'sucesso', 'message': 'Banco de dados importado com sucesso e salvo.'}));
     } catch (e) {
       return Response(400, body: 'JSON inválido ou erro ao processar o arquivo: $e');
     }
