@@ -201,38 +201,10 @@ void main() async {
   });
 
   // Rotas de LEITURA da API
-  // Rotas de ESCRITA da API
-  router.post('/api/<collection>', (Request request, String collection) async {
-    final body = await request.readAsString();
-    try {
-      return await _safeDbWrite(() async {
-        final Map<String, dynamic> docData = jsonDecode(body);
-        final newId = docData.containsKey('id') && docData['id'] != null && docData['id'].toString().isNotEmpty ? docData['id'].toString() : uuid.v4();
-        docData['id'] = newId;
-        if (!_database.containsKey(collection)) _database[collection] = {};
-        _database[collection]![newId] = docData;
-        return Response(201, body: jsonEncode(docData), headers: {'Content-Type': 'application/json'});
-      });
-    } catch (e) {
-      return Response(400, body: 'JSON inválido.');
-    }
+  router.get('/api/collections', (Request request) {
+    final collectionNames = _database.keys.toList();
+    return Response.ok(jsonEncode(collectionNames), headers: {'Content-Type': 'application/json'});
   });
-
-  router.put('/api/<collection>/<id>', (Request request, String collection, String id) async {
-    if (!_database.containsKey(collection) || !_database[collection]!.containsKey(id)) return Response.notFound('Documento não encontrado.');
-    final body = await request.readAsString();
-    try {
-      return await _safeDbWrite(() async {
-        final Map<String, dynamic> docData = jsonDecode(body);
-        docData['id'] = id;
-        _database[collection]![id] = docData;
-        return Response.ok(jsonEncode(docData), headers: {'Content-Type': 'application/json'});
-      });
-    } catch (e) {
-      return Response(400, body: 'JSON inválido.');
-    }
-  });
-
 
   // Rota de LEITURA da API (AGORA COM SUPORTE A QUERIES)
   router.get('/api/<collection>', (Request request, String collection) {
@@ -263,6 +235,38 @@ void main() async {
     }).toList();
 
     return Response.ok(jsonEncode(filteredDocs), headers: {'Content-Type': 'application/json'});
+  });
+
+  // Rotas de ESCRITA da API
+  router.post('/api/<collection>', (Request request, String collection) async {
+    final body = await request.readAsString();
+    try {
+      return await _safeDbWrite(() async {
+        final Map<String, dynamic> docData = jsonDecode(body);
+        final newId = docData.containsKey('id') && docData['id'] != null && docData['id'].toString().isNotEmpty ? docData['id'].toString() : uuid.v4();
+        docData['id'] = newId;
+        if (!_database.containsKey(collection)) _database[collection] = {};
+        _database[collection]![newId] = docData;
+        return Response(201, body: jsonEncode(docData), headers: {'Content-Type': 'application/json'});
+      });
+    } catch (e) {
+      return Response(400, body: 'JSON inválido.');
+    }
+  });
+
+  router.put('/api/<collection>/<id>', (Request request, String collection, String id) async {
+    if (!_database.containsKey(collection) || !_database[collection]!.containsKey(id)) return Response.notFound('Documento não encontrado.');
+    final body = await request.readAsString();
+    try {
+      return await _safeDbWrite(() async {
+        final Map<String, dynamic> docData = jsonDecode(body);
+        docData['id'] = id;
+        _database[collection]![id] = docData;
+        return Response.ok(jsonEncode(docData), headers: {'Content-Type': 'application/json'});
+      });
+    } catch (e) {
+      return Response(400, body: 'JSON inválido.');
+    }
   });
 
   router.delete('/api/<collection>', (Request request, String collection) async {
