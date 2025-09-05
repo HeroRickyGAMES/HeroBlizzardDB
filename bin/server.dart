@@ -1,22 +1,26 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-
-import 'package:async/async.dart'; // Importa o pacote
 import 'package:shelf/shelf.dart';
 import 'package:shelf/shelf_io.dart' as io;
 import 'package:shelf_router/shelf_router.dart';
 import 'package:shelf_static/shelf_static.dart';
+import 'package:synchronized/synchronized.dart';
 import 'package:uuid/uuid.dart';
+
+//Programado por HeroRickyGAMES
 
 // --- Configuração e Banco de Dados ---
 final Map<String, dynamic> _config = {};
 final Map<String, Map<String, dynamic>> _database = {};
-String _dbPath = 'database.json'; // Padrão para local
+String _dbPath = 'database.json';
 final Map<String, DateTime> _sessions = {};
 const uuid = Uuid();
+final _dbLock = Lock();
 
-// CORREÇÃO: A classe correta para criar uma "trava" é CancelableOperation
-final _dbLock = CancelableOperation.fromFuture(Future.value());
+// --- Componentes para o sistema de Batching ---
+bool _isDbDirty = false; // Flag para rastrear alterações pendentes
+Timer? _dbSaveTimer;     // O Timer que salvará periodicamente
 
 // --- Carregamento de Configuração Híbrida ---
 Future<void> _loadConfig() async {
@@ -32,8 +36,8 @@ Future<void> _loadConfig() async {
     }
   }
 
-  _config['admin_user'] = Platform.environment['RENDER_DISCOVERY_SERVICE'] ?? fileConfig['admin_user'];
-  _config['admin_password'] = Platform.environment['RENDER_SERVICE_ID'] ?? fileConfig['admin_password'];
+  _config['admin_user'] = Platform.environment['ADMIN_USER'] ?? fileConfig['admin_user'];
+  _config['admin_password'] = Platform.environment['ADMIN_PASSWORD'] ?? fileConfig['admin_password'];
   _config['import_export_password'] = Platform.environment['IMPORT_EXPORT_PASSWORD'];
 
   final apiTokensEnv = Platform.environment['API_TOKENS'];
@@ -71,7 +75,8 @@ Future<void> _loadDatabase() async {
       }
     } else {
       _database['exemplo'] = {'doc1': {'id': 'doc1', 'mensagem': 'Bem-vindo ao HeroBlizzardDB!'}};
-      await _saveDatabase();
+      // Na primeira vez, salva imediatamente, sem esperar o timer
+      await File(_dbPath).writeAsString(jsonEncode(_database));
     }
   } catch (e) {
     print('Erro ao carregar o banco de dados de $_dbPath: $e');
@@ -79,27 +84,49 @@ Future<void> _loadDatabase() async {
 }
 
 Future<void> _saveDatabase() async {
-  try {
-    final file = File(_dbPath);
-    await file.writeAsString(jsonEncode(_database));
-  } catch (e) {
-    print('Erro ao salvar o banco de dados em $_dbPath: $e');
-  }
+  await _dbLock.synchronized(() async {
+    if (!_isDbDirty) return;
+    try {
+      final file = File(_dbPath);
+      await file.writeAsString(jsonEncode(_database));
+      _isDbDirty = false;
+      print('${DateTime.now()}: Banco de dados salvo no disco (batch).');
+    } catch (e) {
+      print('Erro ao salvar o banco de dados em $_dbPath: $e');
+    }
+  });
 }
 
-// Função segura para realizar escritas, usando a trava para evitar concorrência.
 Future<T> _safeDbWrite<T>(Future<T> Function() operation) async {
-  // A classe CancelableOperation não tem um método `synchronized`. Usamos `then` para encadear.
-  // Isso cria uma fila, garantindo que a próxima operação só comece quando a anterior terminar.
-  return await _dbLock.then((_) async {
+  return await _dbLock.synchronized(() async {
     final result = await operation();
-    await _saveDatabase();
+    _isDbDirty = true;
     return result;
-  }).value;
+  });
 }
 
+void _startDbSaveTimer() {
+  _dbSaveTimer = Timer.periodic(const Duration(seconds: 2), (timer) {
+    _saveDatabase();
+  });
+  print('Sistema de batching de escrita iniciado (salvando a cada 2 segundos se houver mudanças).');
+}
 
-// --- Middleware de Autenticação e Funções Auxiliares ---
+void _stopDbSaveTimer() {
+  _dbSaveTimer?.cancel();
+}
+
+void _setupShutdownHook() {
+  ProcessSignal.sigint.watch().listen((_) async {
+    print('\nRecebido sinal de encerramento (Ctrl+C). Salvando alterações pendentes...');
+    _stopDbSaveTimer();
+    await _saveDatabase();
+    print('Servidor encerrado.');
+    exit(0);
+  });
+}
+
+// --- Middlewares e Funções Auxiliares ---
 Middleware authMiddleware() {
   return (Handler innerHandler) {
     return (Request request) {
@@ -153,6 +180,9 @@ bool _isSessionValid(String? token) {
 void main() async {
   await _loadConfig();
   await _loadDatabase();
+  _startDbSaveTimer();
+  _setupShutdownHook();
+
   final router = Router();
 
   // Rota de Login
@@ -170,7 +200,7 @@ void main() async {
     }
   });
 
-  // Rotas de LEITURA da API (não precisam de trava)
+  // Rotas de LEITURA da API
   router.get('/api/collections', (Request request) {
     final collectionNames = _database.keys.toList();
     return Response.ok(jsonEncode(collectionNames), headers: {'Content-Type': 'application/json'});
@@ -181,7 +211,7 @@ void main() async {
     return Response.ok(jsonEncode(documents), headers: {'Content-Type': 'application/json'});
   });
 
-  // Rotas de ESCRITA da API (protegidas pela trava de concorrência)
+  // Rotas de ESCRITA da API
   router.post('/api/<collection>', (Request request, String collection) async {
     final body = await request.readAsString();
     try {
@@ -258,8 +288,7 @@ void main() async {
     }
     final body = await request.readAsString();
     try {
-      // A trava é usada aqui diretamente para garantir que a operação de import seja atômica
-      return await _dbLock.then((_) async {
+      await _dbLock.synchronized(() async {
         final newDbData = jsonDecode(body);
         if (newDbData is! Map<String, dynamic>) {
           throw FormatException('O JSON importado deve ser um objeto (Map).');
@@ -268,11 +297,15 @@ void main() async {
         if (await currentDbFile.exists()) {
           await currentDbFile.rename('${_dbPath}.bak');
         }
-        await File(_dbPath).writeAsString(body);
         _database.clear();
-        await _loadDatabase();
-        return Response.ok(jsonEncode({'status': 'sucesso', 'message': 'Banco de dados importado com sucesso.'}));
-      }).value;
+        newDbData.forEach((key, value) {
+          _database[key] = Map<String, dynamic>.from(value);
+        });
+        _isDbDirty = true;
+        // Força um salvamento imediato após o import para garantir consistência
+        await _saveDatabase();
+      });
+      return Response.ok(jsonEncode({'status': 'sucesso', 'message': 'Banco de dados importado com sucesso e salvo.'}));
     } catch (e) {
       return Response(400, body: 'JSON inválido ou erro ao processar o arquivo: $e');
     }
@@ -284,10 +317,7 @@ void main() async {
   final portEnv = Platform.environment['PORT'];
   final port = portEnv != null ? int.parse(portEnv) : 8080;
   final server = await io.serve(
-    Pipeline()
-        .addMiddleware(logRequests())
-        .addMiddleware(authMiddleware())
-        .addHandler(cascadeHandler),
+    Pipeline().addMiddleware(logRequests()).addMiddleware(authMiddleware()).addHandler(cascadeHandler),
     '0.0.0.0',
     port,
   );
