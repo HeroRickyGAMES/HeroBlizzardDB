@@ -123,16 +123,18 @@ void _setupShutdownHook() {
   });
 }
 
-// --- Middlewares e Funções Auxiliares ---
+// --- Middlewares e Funções Auxiliares (LÓGICA CORRIGIDA) ---
 Middleware authMiddleware() {
   return (Handler innerHandler) {
     return (Request request) {
       final path = request.url.path;
 
-      // Rotas públicas de autenticação do app, login do painel e assets são liberadas primeiro.
+      // CORREÇÃO: Verifica TODAS as rotas públicas primeiro, antes de qualquer outra lógica.
       if (path.startsWith('/auth/') || path == '/login' || path == '/login.html' || path.endsWith('.css') || path.endsWith('.js')) {
         return innerHandler(request);
       }
+
+      // Se não for uma rota pública, continua com a validação...
 
       // Rotas da API principal (/api/*)
       if (path.startsWith('/api/')) {
@@ -140,7 +142,7 @@ Middleware authMiddleware() {
         if(path == '/api/export' || path == '/api/import') {
           return innerHandler(request);
         }
-        // Validação por Token Bearer (para apps externos)
+        // Validação por Token Bearer ou Sessão de Cookie
         final authHeader = request.headers['authorization'];
         if (authHeader != null && authHeader.startsWith('Bearer ')) {
           final token = authHeader.substring(7);
@@ -149,7 +151,6 @@ Middleware authMiddleware() {
             return innerHandler(request);
           }
         }
-        // Validação por Sessão de Cookie (para a dashboard)
         final sessionToken = _getSessionToken(request);
         if (_isSessionValid(sessionToken)) {
           return innerHandler(request);
