@@ -1,5 +1,6 @@
-import 'dart:io';
 import 'dart:convert';
+import 'dart:io';
+
 import 'package:shelf/shelf.dart';
 import 'package:shelf/shelf_io.dart' as io;
 import 'package:shelf_router/shelf_router.dart';
@@ -9,15 +10,12 @@ import 'package:uuid/uuid.dart';
 // --- Configuração e Banco de Dados ---
 final Map<String, dynamic> _config = {};
 final Map<String, Map<String, dynamic>> _database = {};
-// O caminho do DB também será híbrido
 String _dbPath = 'database.json'; // Padrão para local
-
 final Map<String, DateTime> _sessions = {};
 const uuid = Uuid();
 
-// --- Carregamento de Configuração Híbrida (MODIFICADO) ---
+// --- Carregamento de Configuração Híbrida ---
 Future<void> _loadConfig() async {
-  // Passo 1: Tenta carregar o config.json como base (fallback)
   Map<String, dynamic> fileConfig = {};
   final configFile = File('config.json');
   if (await configFile.exists()) {
@@ -30,52 +28,32 @@ Future<void> _loadConfig() async {
     }
   }
 
-  // Passo 2: Lê as Variáveis de Ambiente, que têm PRIORIDADE.
-  // Se a variável de ambiente existir, ela sobrescreve o valor do arquivo.
-  _config['admin_user'] = Platform.environment['RENDER_DISCOVERY_SERVICE'] ?? fileConfig['admin_user'];
-  _config['admin_password'] = Platform.environment['RENDER_SERVICE_ID'] ?? fileConfig['admin_password'];
+  _config['admin_user'] = Platform.environment['ADMIN_USER'] ?? fileConfig['admin_user'];
+  _config['admin_password'] = Platform.environment['ADMIN_PASSWORD'] ?? fileConfig['admin_password'];
+  _config['import_export_password'] = Platform.environment['IMPORT_EXPORT_PASSWORD'];
 
-  print(Platform.environment.entries.toSet());
-
-  if (_config['admin_user'] == null || _config['admin_password'] == null) {
-    print('----------------------------------------------------------------------');
-    print('ERRO CRÍTICO: Credenciais de administrador não foram configuradas.');
-    // ...
-    print('----------------------------------------------------------------------');
-    exit(1); // <-- A APLICAÇÃO DESLIGA AQUI PROPOSITALMENTE!
-  }
-
-  // Para os tokens, a lógica é um pouco mais complexa
   final apiTokensEnv = Platform.environment['API_TOKENS'];
   if (apiTokensEnv != null && apiTokensEnv.isNotEmpty) {
-    // Usa os tokens da variável de ambiente se existirem
     _config['api_tokens'] = apiTokensEnv.split(',').where((s) => s.isNotEmpty).toList();
   } else {
-    // Senão, usa os tokens do arquivo de configuração
     _config['api_tokens'] = fileConfig['api_tokens'] ?? [];
   }
-
-  // O caminho do banco de dados também segue a mesma lógica
   _dbPath = Platform.environment['DATABASE_PATH'] ?? 'database.json';
 
-  // Passo 3: Validação final. Se configurações críticas não estiverem em lugar nenhum, encerra.
   if (_config['admin_user'] == null || _config['admin_password'] == null) {
-    print('----------------------------------------------------------------------');
     print('ERRO CRÍTICO: Credenciais de administrador não foram configuradas.');
-    print('Por favor, configure-as via Variáveis de Ambiente (ADMIN_USER, ADMIN_PASSWORD)');
-    print('ou em um arquivo config.json na raiz do projeto.');
-    print('----------------------------------------------------------------------');
     exit(1);
   }
+  if (_config['import_export_password'] == null) {
+    print('AVISO: Senha de import/export (IMPORT_EXPORT_PASSWORD) não definida. As rotas estarão desativadas.');
+  }
 
-  print('Configurações carregadas com sucesso. Modo de execução:');
+  print('Configurações carregadas com sucesso.');
   print('-> Usuário Admin: ${_config['admin_user']} (Fonte: ${Platform.environment['ADMIN_USER'] != null ? 'Variável de Ambiente' : 'config.json'})');
   print('-> Path do DB: $_dbPath (Fonte: ${Platform.environment['DATABASE_PATH'] != null ? 'Variável de Ambiente' : 'Padrão'})');
-
 }
 
-// (O resto do arquivo é idêntico ao anterior, sem nenhuma mudança)
-// Funções _loadDatabase, _saveDatabase, middlewares e rotas...
+// --- Funções do Banco de Dados ---
 Future<void> _loadDatabase() async {
   try {
     final file = File(_dbPath);
@@ -95,6 +73,7 @@ Future<void> _loadDatabase() async {
     print('Erro ao carregar o banco de dados de $_dbPath: $e');
   }
 }
+
 Future<void> _saveDatabase() async {
   try {
     final file = File(_dbPath);
@@ -103,11 +82,17 @@ Future<void> _saveDatabase() async {
     print('Erro ao salvar o banco de dados em $_dbPath: $e');
   }
 }
+
+// --- Middleware de Autenticação e Funções Auxiliares ---
 Middleware authMiddleware() {
   return (Handler innerHandler) {
     return (Request request) {
       final path = request.url.path;
       if (path.startsWith('api/')) {
+        if(path == 'api/export' || path == 'api/import') {
+          // As rotas de import/export têm sua própria validação por senha, então não precisam de token/sessão.
+          return innerHandler(request);
+        }
         final authHeader = request.headers['authorization'];
         if (authHeader != null && authHeader.startsWith('Bearer ')) {
           final token = authHeader.substring(7);
@@ -133,6 +118,7 @@ Middleware authMiddleware() {
     };
   };
 }
+
 String? _getSessionToken(Request request) {
   final sessionCookie = request.headers['cookie'];
   if (sessionCookie != null) {
@@ -142,14 +128,19 @@ String? _getSessionToken(Request request) {
   }
   return null;
 }
+
 bool _isSessionValid(String? token) {
   if (token == null) return false;
   return _sessions.containsKey(token) && _sessions[token]!.isAfter(DateTime.now());
 }
+
+// --- Função Principal e Definição de Rotas ---
 void main() async {
   await _loadConfig();
   await _loadDatabase();
   final router = Router();
+
+  // Rota de Login
   router.post('/login', (Request request) async {
     final body = await request.readAsString();
     final params = Uri.splitQueryString(body);
@@ -163,6 +154,8 @@ void main() async {
       return Response.seeOther('/login.html?error=1');
     }
   });
+
+  // Rotas de CRUD da API
   router.get('/api/collections', (Request request) {
     final collectionNames = _database.keys.toList();
     return Response.ok(jsonEncode(collectionNames), headers: {'Content-Type': 'application/json'});
@@ -213,6 +206,52 @@ void main() async {
     _database[collection]!.remove(id);
     await _saveDatabase();
     return Response(204);
+  });
+
+  // Rotas de Import / Export
+  router.get('/api/export', (Request request) async {
+    final providedPassword = request.url.queryParameters['password'];
+    final masterPassword = _config['import_export_password'];
+    if (masterPassword == null || providedPassword != masterPassword) {
+      return Response.forbidden('Senha de acesso inválida ou não configurada.');
+    }
+    final dbFile = File(_dbPath);
+    if (!await dbFile.exists()) {
+      return Response.notFound('Arquivo de banco de dados não encontrado.');
+    }
+    final fileContent = await dbFile.readAsString();
+    return Response.ok(
+      fileContent,
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Disposition': 'attachment; filename="heroblizzarddb_backup_${DateTime.now().toIso8601String()}.json"'
+      },
+    );
+  });
+
+  router.post('/api/import', (Request request) async {
+    final providedPassword = request.url.queryParameters['password'];
+    final masterPassword = _config['import_export_password'];
+    if (masterPassword == null || providedPassword != masterPassword) {
+      return Response.forbidden('Senha de acesso inválida ou não configurada.');
+    }
+    final body = await request.readAsString();
+    try {
+      final newDbData = jsonDecode(body);
+      if (newDbData is! Map<String, dynamic>) {
+        throw FormatException('O JSON importado deve ser um objeto (Map).');
+      }
+      final currentDbFile = File(_dbPath);
+      if (await currentDbFile.exists()) {
+        await currentDbFile.rename('${_dbPath}.bak');
+      }
+      await File(_dbPath).writeAsString(body);
+      _database.clear();
+      await _loadDatabase();
+      return Response.ok(jsonEncode({'status': 'sucesso', 'message': 'Banco de dados importado com sucesso.'}));
+    } catch (e) {
+      return Response(400, body: 'JSON inválido ou erro ao processar o arquivo: $e');
+    }
   });
 
   final staticHandler = createStaticHandler('public', defaultDocument: 'index.html');
